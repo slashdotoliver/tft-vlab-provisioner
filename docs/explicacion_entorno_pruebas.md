@@ -62,10 +62,6 @@ graph TD
     Switch --> DHCP[Servidor DHCP]
     Switch --> NFS[Servidor NFS Compartido]
 
-    Switch --> Bond1
-    Switch --> Bond2
-    Switch --> Bond3
-
     subgraph Nodo1[Nodo Físico 1]
         Bond1[Interfaz Bond ALB]
         Bridge1[Red Bridge libvirt]
@@ -98,6 +94,10 @@ graph TD
         Bridge3 --- VM5
         Bridge3 --- VM6
     end
+
+    Switch --> Bond1
+    Switch --> Bond2
+    Switch --> Bond3
 ```
 
 ## Diseño del entorno de pruebas
