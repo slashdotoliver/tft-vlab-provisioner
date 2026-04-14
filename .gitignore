@@ -1,0 +1,7 @@
+.idea/
+.zed/
+.vscode/
+
+env/
+.env
+.envrc
