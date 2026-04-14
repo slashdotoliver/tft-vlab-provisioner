@@ -1,0 +1,15 @@
+services:
+  postgres:
+    restart: never
+    ports:
+      - "5432:5432"
+    shm_size: 256mb
+    deploy:
+      resources:
+        reservations:
+          cpus: 1
+          memory: 512M
+        limits:
+          cpus: 4
+          memory: 2G
+

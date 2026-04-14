@@ -1,0 +1,39 @@
+services:
+  postgres:
+    # https://hub.docker.com/_/postgres/
+    image: docker.io/library/postgres:18-alpine
+    container_name: postgres
+    networks:
+      backend_net:
+        ipv4_address: 10.1.100.2
+    environment:
+      POSTGRES_USER: admin_db
+      POSTGRES_DB: lab_db
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-passwd
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - pg_data:/var/lib/postgresql/18/docker
+      - "../scripts/:/scripts:ro"
+    secrets:
+      - postgres-passwd
+      - db-worker-passwd
+      - db-manager-passwd
+
+volumes:
+  pg_data:
+
+secrets:
+  postgres-passwd:
+    file: ../secrets/postgres_admin_passwd.txt
+  db-worker-passwd:
+    file: ../secrets/postgres_worker_passwd.txt
+  db-manager-passwd:
+    file: ../secrets/postgres_manager_passwd.txt
+
+networks:
+  backend_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.1.100.0/24
+          gateway: 10.1.100.1
