@@ -1,0 +1,8 @@
+# https://docs.fedoraproject.org/en-US/fedora-server/virtualization/installation/#_installing_libvirt_virtualization_software
+fedora_virtualization_packages:
+  - qemu-kvm-core
+  - libvirt
+  - virt-install
+  - guestfs-tools
+
+libvirt_service_name: "libvirtd.service"

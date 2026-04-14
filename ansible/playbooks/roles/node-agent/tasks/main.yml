@@ -1,0 +1,10 @@
+- name: Validate input
+  ansible.builtin.assert:
+    that: virt_mode in ['active', 'inactive', 'absent']
+
+- name: VIRTUALIZATION | Install and configure libvirtd
+  ansible.builtin.import_tasks: virt_setup.yml
+  when: virt_mode in ['active', 'inactive']
+- name: VIRTUALIZATION | Teardown and uninstall virtualization packages
+  ansible.builtin.import_tasks: virt_teardown.yml
+  when: virt_mode == 'absent'

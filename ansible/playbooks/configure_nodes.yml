@@ -1,0 +1,6 @@
+- name: Prepare virtualization in nodes
+  hosts: hypervisor_nodes
+  roles:
+    - role: node-agent
+  vars:
+    virt_mode: "active" # active | inactive | absent

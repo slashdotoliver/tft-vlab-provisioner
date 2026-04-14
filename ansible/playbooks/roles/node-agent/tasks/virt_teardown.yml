@@ -1,0 +1,14 @@
+# virt_mode = absent
+- name: Stop and disble libvirtd
+  ansible.builtin.systemd:
+    name: "{{ libvirt_service_name }}"
+    state: stopped
+    enabled: false
+  ignore_errors: true
+  become: true
+
+- name: Uninstall virtualization packages
+  ansible.builtin.dnf:
+    name: "{{ fedora_virtualization_packages }}"
+    state: absent
+  become: true

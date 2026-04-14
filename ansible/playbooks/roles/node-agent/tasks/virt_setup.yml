@@ -1,0 +1,14 @@
+# virt_mode = active | inactive
+- name: Install virtualization packages
+  ansible.builtin.dnf:
+    name: "{{ fedora_virtualization_packages }}"
+    state: present
+    update_cache: true
+  become: true
+
+- name: Start and enable libvirtd
+  ansible.builtin.systemd:
+    name: "{{ libvirt_service_name }}"
+    state: "{{ 'started' if virt_mode == 'active' else 'stopped' }}"
+    enabled: "{{ true if virt_mode == 'active' else false }}"
+  become: true
