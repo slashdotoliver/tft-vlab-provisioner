@@ -3,7 +3,7 @@ import signal
 import sys
 from threading import Event
 from types import FrameType
-from typing import NoReturn, Any
+from typing import NoReturn
 
 import libvirt
 
@@ -14,7 +14,7 @@ from node_agent.adapters.workers.mock_lifecycle_event_handler import MockLifecyc
 from node_agent.application.ports.worker import Worker
 from node_agent.application.use_cases.environment_validator import EnvironmentValidator
 from node_agent.domain.attempt import attempt
-from node_agent.domain.model.environment_models import EnvironmentConfig, ValidationReport, EnvironmentCheckError
+from node_agent.domain.model.environment_models import EnvironmentCheckError, EnvironmentConfig, ValidationReport
 from node_agent.domain.model.result import Result
 
 shutdown_event: Event = Event()
@@ -42,18 +42,17 @@ def main():
     LOGGER.debug("Signal handlers registered.")
 
     # Parse config
-    uri = 'qemu:///system'
+    uri = "qemu:///system"
 
     # Validate environment
     validate_environment(EnvironmentConfig(), uri)
 
     libvirt.virEventRegisterDefaultImpl()
     connection: libvirt.virConnect | None = attempt(
-        lambda: libvirt.open(uri),
-        exceptions=(libvirt.libvirtError,)
+        lambda: libvirt.open(uri), exceptions=(libvirt.libvirtError,)
     ).value_or(None)
     if connection is None:
-        LOGGER.error(f"Failed to open connection to libvirt.")
+        LOGGER.error("Failed to open connection to libvirt.")
     else:
         monitor_worker: Worker = LibvirtMonitorWorker(connection, MockLifecycleEventHandler())
         monitor_worker.run()
@@ -62,10 +61,9 @@ def main():
 
 
 def validate_environment(config: EnvironmentConfig, uri: str) -> None | NoReturn:
-    report: Result[ValidationReport, EnvironmentCheckError] = (
-        EnvironmentValidator(sys_port=LinuxEnvironmentAdapter(), libvirt_port=LibvirtEnvironmentAdapter(uri))
-        .validate_environment(config)
-    )
+    report: Result[ValidationReport, EnvironmentCheckError] = EnvironmentValidator(
+        sys_port=LinuxEnvironmentAdapter(), libvirt_port=LibvirtEnvironmentAdapter(uri)
+    ).validate_environment(config)
     if report.is_failure():
         LOGGER.error(f"Failed to validate environment: {report.get_error()}")
         leave()

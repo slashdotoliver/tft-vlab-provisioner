@@ -1,25 +1,20 @@
+from time import sleep
+
 import libvirt
-import pytest
 
 from node_agent.adapters.workers.libvirt_monitor_worker import LibvirtMonitorWorker
-from node_agent.application.handlers.domain_lifecycle_event_handler import DomainLifecycleEventHandler
+from node_agent.adapters.workers.mock_lifecycle_event_handler import MockLifecycleEventHandler
 from node_agent.application.ports.worker import Worker
-from node_agent.domain.type_adapters.vir_domain_event_id import DomainEventType
-
-
-class TestDomainLifecycleEventHandler(DomainLifecycleEventHandler):
-    def handle_lifecycle_event(self, name: str, event: DomainEventType, detail) -> None:
-        ... # TODO
 
 
 def test_should_invoke_lifecycle_event():
     libvirt.virEventRegisterDefaultImpl()
-    test_conn: libvirt.virConnect | None = libvirt.open('test:///default')
+    test_conn: libvirt.virConnect | None = libvirt.open("test:///default")
     assert test_conn is not None
 
-    monitor_worker: Worker = LibvirtMonitorWorker(test_conn, )
+    monitor_worker: Worker = LibvirtMonitorWorker(test_conn, MockLifecycleEventHandler())
 
-
-    monitor_worker.run()
-    shutdown_event.wait()
-    monitor_worker.stop()
+    assert monitor_worker.run()
+    sleep(0.15)
+    # TODO: add an event in the test connection
+    assert monitor_worker.stop()

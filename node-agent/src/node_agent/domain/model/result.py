@@ -1,7 +1,9 @@
 # attempt()
-from typing import Callable, Any
+from typing import Any, Callable
 
-from returns.result import Result as ReturnsResult, Success as ReturnsSuccess, Failure as ReturnsFailure
+from returns.result import Failure as ReturnsFailure
+from returns.result import Result as ReturnsResult
+from returns.result import Success as ReturnsSuccess
 
 
 class Result[T, E]:

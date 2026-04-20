@@ -9,7 +9,6 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "libvirt-python>=12.2.0",
-    "pytest>=9.0.3",
     "returns==0.26.0",
     "sqlalchemy>=2.0.49",
 ]
@@ -20,3 +19,15 @@ node-agent = "node_agent:main"
 [build-system]
 requires = ["uv_build>=0.9.29,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "N", "I"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.11",
+]

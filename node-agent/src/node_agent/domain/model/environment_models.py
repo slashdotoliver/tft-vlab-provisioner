@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import TypeAlias, Literal
+from typing import Literal, TypeAlias
 
 from node_agent.domain.model.result import Result
 
@@ -30,27 +30,23 @@ Represents the outcome of a single environment requirement check.
 @dataclass
 class EnvironmentConfig:
     required_arch: str = "x86_64"
-    requires_hw_virt: bool = True
-    requires_nested_virt: bool = True
+    requires_hw_virtualization: bool = True
+    requires_nested_virtualization: bool = True
     required_guest_support: list[GuestSupport] = None
     required_pool_support: list[PoolSupport] = None
 
     def __post_init__(self):
         if self.required_guest_support is None:
-            self.required_guest_support = [
-                GuestSupport("hvm", "x86_64", "kvm")
-            ]
+            self.required_guest_support = [GuestSupport("hvm", "x86_64", "kvm")]
         if self.required_pool_support is None:
-            self.required_pool_support = [
-                PoolSupport("netfs", {"nfs"}, {"qcow2"})
-            ]
+            self.required_pool_support = [PoolSupport("netfs", {"nfs"}, {"qcow2"})]
 
 
 @dataclass(frozen=True)
 class GuestSupport:
-    os_type: Literal['hvm', 'exe', 'xen']
+    os_type: Literal["hvm", "exe", "xen"]
     arch: str
-    emulator: Literal['kvm', 'qemu']
+    emulator: Literal["kvm", "qemu"]
 
 
 @dataclass(frozen=True)

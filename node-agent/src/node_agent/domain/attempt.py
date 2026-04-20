@@ -4,9 +4,9 @@ from node_agent.domain.model.environment_models import Result
 
 
 def attempt[T, E](
-        func: Callable[[], T],
-        exceptions: tuple[type[Exception], ...],
-        exception_mapper: Callable[[Exception], E] | None = None
+    func: Callable[[], T],
+    exceptions: tuple[type[Exception], ...],
+    exception_mapper: Callable[[Exception], E] | None = None,
 ) -> Result[T, E]:
     try:
         return Result.success(func())
