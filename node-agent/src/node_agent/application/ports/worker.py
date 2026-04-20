@@ -1,0 +1,6 @@
+from typing import Protocol
+
+
+class Worker(Protocol):
+    def run(self) -> bool: ...
+    def stop(self) -> bool: ...

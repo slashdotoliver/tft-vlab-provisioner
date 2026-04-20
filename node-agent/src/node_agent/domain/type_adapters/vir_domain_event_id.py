@@ -1,0 +1,93 @@
+from enum import IntEnum
+
+
+class DomainEventType(IntEnum):
+    # virDomainEventType
+    VIR_DOMAIN_EVENT_DEFINED = 0
+    VIR_DOMAIN_EVENT_UNDEFINED = 1
+    VIR_DOMAIN_EVENT_STARTED = 2
+    VIR_DOMAIN_EVENT_SUSPENDED = 3
+    VIR_DOMAIN_EVENT_RESUMED = 4
+    VIR_DOMAIN_EVENT_STOPPED = 5
+    VIR_DOMAIN_EVENT_SHUTDOWN = 6
+    VIR_DOMAIN_EVENT_PMSUSPENDED = 7
+    VIR_DOMAIN_EVENT_CRASHED = 8
+
+    def detail_type_from_event(self) -> type[IntEnum] | ValueError:  # TODO: change result signature to Result[...]
+        match self.value:
+            case DomainEventType.VIR_DOMAIN_EVENT_DEFINED:
+                return DomainEventDefinedDetailType
+            case DomainEventType.VIR_DOMAIN_EVENT_UNDEFINED:
+                return DomainEventUndefinedDetailType
+        return ValueError()
+
+
+class DomainEventDefinedDetailType(IntEnum):
+    # virDomainEventDefinedDetailType
+    VIR_DOMAIN_EVENT_DEFINED_ADDED = 0
+    VIR_DOMAIN_EVENT_DEFINED_UPDATED = 1
+    VIR_DOMAIN_EVENT_DEFINED_RENAMED = 2
+    VIR_DOMAIN_EVENT_DEFINED_FROM_SNAPSHOT = 3
+
+
+class DomainEventUndefinedDetailType(IntEnum):
+    # virDomainEventUndefinedDetailType
+    VIR_DOMAIN_EVENT_UNDEFINED_REMOVED = 0
+    VIR_DOMAIN_EVENT_UNDEFINED_RENAMED = 1
+
+
+class DomainEventResumedDetailType(IntEnum):
+    # virDomainEventResumedDetailType
+    VIR_DOMAIN_EVENT_RESUMED_UNPAUSED = 0
+    VIR_DOMAIN_EVENT_RESUMED_MIGRATED = 1
+    VIR_DOMAIN_EVENT_RESUMED_FROM_SNAPSHOT = 2
+    VIR_DOMAIN_EVENT_RESUMED_POSTCOPY = 3
+    VIR_DOMAIN_EVENT_RESUMED_POSTCOPY_FAILED = 4
+
+
+class DomainEventPMSuspendedDetailType(IntEnum):
+    # virDomainEventPMSuspendedDetailType
+    VIR_DOMAIN_EVENT_PMSUSPENDED_MEMORY = 0
+    VIR_DOMAIN_EVENT_PMSUSPENDED_DISK = 1
+
+
+class DomainEventShutdownDetailType(IntEnum):
+    # virDomainEventShutdownDetailType
+    VIR_DOMAIN_EVENT_SHUTDOWN_FINISHED = 0
+    VIR_DOMAIN_EVENT_SHUTDOWN_GUEST = 1
+    VIR_DOMAIN_EVENT_SHUTDOWN_HOST = 2
+
+
+class DomainEventStartedDetailType(IntEnum):
+    # virDomainEventStartedDetailType
+    VIR_DOMAIN_EVENT_STARTED_BOOTED = 0
+    VIR_DOMAIN_EVENT_STARTED_MIGRATED = 1
+    VIR_DOMAIN_EVENT_STARTED_RESTORED = 2
+    VIR_DOMAIN_EVENT_STARTED_FROM_SNAPSHOT = 3
+    VIR_DOMAIN_EVENT_STARTED_WAKEUP = 4
+    VIR_DOMAIN_EVENT_STARTED_RECREATED = 5
+
+
+class DomainEventStoppedDetailType(IntEnum):
+    # virDomainEventStoppedDetailType
+    VIR_DOMAIN_EVENT_STOPPED_SHUTDOWN = 0
+    VIR_DOMAIN_EVENT_STOPPED_DESTROYED = 1
+    VIR_DOMAIN_EVENT_STOPPED_CRASHED = 2
+    VIR_DOMAIN_EVENT_STOPPED_MIGRATED = 3
+    VIR_DOMAIN_EVENT_STOPPED_SAVED = 4
+    VIR_DOMAIN_EVENT_STOPPED_FAILED = 5
+    VIR_DOMAIN_EVENT_STOPPED_FROM_SNAPSHOT = 6
+    VIR_DOMAIN_EVENT_STOPPED_RECREATED = 7
+
+
+class DomainEventSuspendedDetailType(IntEnum):
+    # virDomainEventSuspendedDetailType
+    VIR_DOMAIN_EVENT_SUSPENDED_PAUSED = 0
+    VIR_DOMAIN_EVENT_SUSPENDED_MIGRATED = 1
+    VIR_DOMAIN_EVENT_SUSPENDED_IOERROR = 2
+    VIR_DOMAIN_EVENT_SUSPENDED_WATCHDOG = 3
+    VIR_DOMAIN_EVENT_SUSPENDED_RESTORED = 4
+    VIR_DOMAIN_EVENT_SUSPENDED_FROM_SNAPSHOT = 5
+    VIR_DOMAIN_EVENT_SUSPENDED_API_ERROR = 6
+    VIR_DOMAIN_EVENT_SUSPENDED_POSTCOPY = 7
+    VIR_DOMAIN_EVENT_SUSPENDED_POSTCOPY_FAILED = 8

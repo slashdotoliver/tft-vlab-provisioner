@@ -1,0 +1,22 @@
+[project]
+name = "node-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Oliver Cabrera Volo", email = "oliver.cabrera101@alu.ulpgc.es" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "libvirt-python>=12.2.0",
+    "pytest>=9.0.3",
+    "returns==0.26.0",
+    "sqlalchemy>=2.0.49",
+]
+
+[project.scripts]
+node-agent = "node_agent:main"
+
+[build-system]
+requires = ["uv_build>=0.9.29,<0.10.0"]
+build-backend = "uv_build"

@@ -12,6 +12,8 @@ pkgs.mkShell {
     just
     gh
 
+    guestfs-tools
+
     gcc
     pkg-config
     libvirt
