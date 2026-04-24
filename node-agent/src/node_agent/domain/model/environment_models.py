@@ -62,3 +62,24 @@ class PoolCapability:
     supported: bool
     source_formats: set[str]
     target_formats: set[str]
+
+
+@dataclass(frozen=True)
+class NetFSPoolConfig:
+    name: str = "vms"
+    source_host: str = "localhost"
+    source_dir: str = "/export/vms"
+    target_path: str = "/var/lib/libvirt/images/vms"
+    is_readonly: bool = False
+
+@dataclass(frozen=True)
+class NetworkConfig:
+    name: str
+    mode: Literal["nat", "bridge"]
+    bridge_name: str
+
+    # 'nat' mode
+    ip_address: str | None = None
+    netmask: str | None = None
+    dhcp_start: str | None = None
+    dhcp_end: str | None = None

@@ -14,6 +14,12 @@ class Volume:
     capacity_bytes: int
     path: str
 
+@dataclass(frozen=True)
+class Disk:
+    target_dev: str
+    volume_path: str
+    backing_file: str | None
+
 
 @dataclass(frozen=True)
 class StoragePool:
@@ -27,14 +33,17 @@ class StoragePool:
 class NetworkInterface:
     mac_address: str
     network_name: str
+    bridge_name: str
+    ip_address: str | None
 
 
 @dataclass(frozen=True)
 class VirtualMachine:
     uuid: DomainUUID
     name: str
-    state: Literal["running", "paused", "shutoff", "crashed"] # TODO: check libvirt docs and type_adapters
+    state: Literal["running", "paused", "shutoff", "crashed", "unknown"]
+    is_persistent: bool
     vcpus: int
     memory_kb: int
     interfaces: tuple[NetworkInterface, ...] = field(default_factory=tuple)
-    volumes: tuple[Volume, ...] = field(default_factory=tuple)
+    disks: tuple[Disk, ...] = field(default_factory=tuple)

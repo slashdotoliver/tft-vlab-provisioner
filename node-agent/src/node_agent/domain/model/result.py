@@ -1,4 +1,3 @@
-# attempt()
 from typing import Any, Callable
 
 from returns.result import Failure as ReturnsFailure
@@ -13,7 +12,7 @@ class Result[T, E]:
     """
 
     def __init__(self, inner: ReturnsResult[T, E]):
-        self._inner = inner
+        self._inner: ReturnsResult[T, E] = inner
 
     @classmethod
     def success(cls, value: T) -> Success[T]:
@@ -44,6 +43,20 @@ class Result[T, E]:
             A new Result object containing either the mapped value or the original error.
         """
         return Result(self._inner.map(func))
+
+    def flat_map[U](self, func: Callable[[T], Result[U, E]]) -> Result[U, E]:
+        return Result(self._inner.bind(lambda value: func(value)._inner))
+
+    def map_error[X](self, func: Callable[[E], Result[T, X]]) -> Result[T, X]:
+        """Applies a function to the encapsulated error if the result is a Failure.
+        If the result is a Success, the value is passed through unchanged.
+        Args:
+            func: A callable that takes the current error type (E) and returns
+                  a new Result (either recovering to Success or passing a Failure).
+        Returns:
+            A new Result object representing the outcome of the recovery attempt.
+        """
+        return Result(self._inner.lash(lambda error: func(error)._inner))
 
     def value_or(self, default_value: T) -> T:
         """Unwraps the encapsulated value if successful, or returns a fallback value.
