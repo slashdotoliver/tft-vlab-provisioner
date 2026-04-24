@@ -1,6 +1,5 @@
 import logging
-import threading
-from threading import Thread
+from threading import Event, Thread
 from typing import Any
 
 import libvirt
@@ -10,6 +9,7 @@ from node_agent.application.ports.worker import Worker
 from node_agent.domain.attempt import attempt
 from node_agent.domain.type_adapters.vir_domain_event_id import DomainEventType
 
+LOGGER = logging.getLogger(__name__)
 MONITOR_WORKER_THREAD_NAME: str = "LibvirtMonitorWorkerThread0"
 EVENT_TIMEOUT_MS: int = 500
 
@@ -19,8 +19,7 @@ class LibvirtMonitorWorker(Worker):
         self._connection = connection
         self._lifecycle_event_handler = lifecycle_event_handler
 
-        self.logger = logging.getLogger(__name__)
-        self._stop_event = threading.Event()
+        self._stop_event = Event()
         self._worker_thread: None | Thread = None
         self._timeout_id: int = -1
         self._lifecycle_event_id: int = -1
@@ -40,7 +39,7 @@ class LibvirtMonitorWorker(Worker):
             None
         )
         if event_type is None:
-            self.logger.error(f"The lifecycle event was triggered with an unknown lifecycle event type: {event_type}")
+            LOGGER.error(f"The lifecycle event was triggered with an unknown lifecycle event type: {event_type}")
             return
         self._lifecycle_event_handler.handle_lifecycle_event(dom.name(), event_type, detail)
 
@@ -48,7 +47,7 @@ class LibvirtMonitorWorker(Worker):
         pass
 
     def _event_loop(self):
-        self.logger.debug(f"Thread {MONITOR_WORKER_THREAD_NAME} started")
+        LOGGER.debug(f"Thread {MONITOR_WORKER_THREAD_NAME} started")
 
         self._timeout_id = libvirt.virEventAddTimeout(EVENT_TIMEOUT_MS, self._dummy_timeout_cb, None)
         self._lifecycle_event_id = self._connection.domainEventRegisterAny(
@@ -65,11 +64,11 @@ class LibvirtMonitorWorker(Worker):
 
     def run(self) -> bool:
         def thread_start_exception_mapper(exception: Exception) -> RuntimeError:
-            self.logger.error(exception)
+            LOGGER.error(exception)
             return RuntimeError(exception)
 
         if self._thread_started:
-            self.logger.warning(f"Trying to start {MONITOR_WORKER_THREAD_NAME} thread that has already started")
+            LOGGER.warning(f"Trying to start {MONITOR_WORKER_THREAD_NAME} thread that has already started")
             return False
 
         self._stop_event.clear()
@@ -87,19 +86,19 @@ class LibvirtMonitorWorker(Worker):
 
     def stop(self) -> bool:
         if self._worker_thread is None:
-            self.logger.warning(f"Thread {MONITOR_WORKER_THREAD_NAME} has not started")
+            LOGGER.warning(f"Thread {MONITOR_WORKER_THREAD_NAME} has not started")
             return False
 
         self._stop_event.set()
 
-        timeout_seconds = (4 * EVENT_TIMEOUT_MS) / 1000.0
+        timeout_seconds = (4 * EVENT_TIMEOUT_MS) / 1_000.0
         self._worker_thread.join(timeout=timeout_seconds)
 
         if self._worker_thread.is_alive():
-            self.logger.error(f"The thread {MONITOR_WORKER_THREAD_NAME} did not stop in time")
+            LOGGER.error(f"The thread {MONITOR_WORKER_THREAD_NAME} did not stop in time")
             return False
 
-        self.logger.debug(
+        LOGGER.debug(
             f"The thread {MONITOR_WORKER_THREAD_NAME} stopped"
             if self._worker_thread
             else f"The thread {MONITOR_WORKER_THREAD_NAME} never started"
