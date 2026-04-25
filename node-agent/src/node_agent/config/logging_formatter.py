@@ -4,11 +4,11 @@ from logging import LogRecord
 
 class LoggingColoredFormatter(logging.Formatter):
     COLORS = {
-        logging.DEBUG: "\x1b[38;20m",
+        logging.DEBUG: "\x1b[0;90m",
         logging.INFO: "\x1b[0;37m",
         logging.WARNING: "\x1b[1;33m",
         logging.ERROR: "\x1b[1;31m",
-        logging.CRITICAL: "\x1b[31;1m",
+        logging.CRITICAL: "\x1b[1;31m",
     }
     RESET = "\x1b[0m"
 

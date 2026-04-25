@@ -11,7 +11,6 @@ from node_agent.domain.model.result import Result
 
 LOGGER = logging.getLogger(__name__)
 RECONCILIATION_SERVICE_THREAD_NAME: str = "ReconciliationLoopServiceThread0"
-STOP_TIMEOUT_MS: int = 10_000
 
 
 class ReconciliationLoop(Service):
@@ -20,16 +19,20 @@ class ReconciliationLoop(Service):
         reconcile_state_evaluator: ReconcileStateUseCase,
         executor: VirtualizationCommandExecutor,
         min_interval_sec: float,
-        max_interval_sec: float,
+        nominal_interval_sec: float,
     ):
         self.reconcile_state_evaluator = reconcile_state_evaluator
         self.executor = executor
-        self.min_interval = min_interval_sec
-        self.max_interval = max_interval_sec
+        self.min_interval_sec = min_interval_sec
+        self.nominal_interval_sec = nominal_interval_sec
         self._wake_up_event = Event()
         self._stop_event = Event()
         self._service_thread: None | Thread = None
         self._last_run_time = 0.0
+        self.stop_timeout_sec = min_interval_sec * 2
+
+        assert self.min_interval_sec <= self.nominal_interval_sec
+        assert self.min_interval_sec > 0
 
     @property
     def _thread_started(self) -> bool:
@@ -70,27 +73,34 @@ class ReconciliationLoop(Service):
             now: float = time.time()
             time_since_last_run = now - self._last_run_time
 
-            if time_since_last_run < self.min_interval:
-                sleep_time = max(self.min_interval - time_since_last_run, 0.0)
-                LOGGER.debug(f"Throttling reconciliation... sleeping {sleep_time:.2f}s")
+            if time_since_last_run < self.min_interval_sec:
+                sleep_time = self.min_interval_sec - time_since_last_run
                 time.sleep(sleep_time)
+                continue
+
+            if time_since_last_run > self.nominal_interval_sec:
+                self.execute()
+                self._wake_up_event.clear()
+                continue
+
+            event_triggered = self._wake_up_event.wait(timeout=self.min_interval_sec)
+            if not event_triggered:
+                continue
 
             self.execute()
-
-            self._wake_up_event.wait(timeout=self.max_interval)
             self._wake_up_event.clear()
 
     def execute(self) -> None:
         try:
             evaluation: Result[list[VMCommand], Exception] = Result.success(self.reconcile_state_evaluator.evaluate())
             if evaluation.is_success():
-                LOGGER.debug("Executed reconciliation evaluation")
+                LOGGER.debug("Evaluation completed")
             else:
                 return LOGGER.error(f"Error during reconciliation: {evaluation.get_error()}")
 
             execution = self.executor.execute_all(commands=(evaluation.value_or([])))
             if execution.is_success():
-                LOGGER.debug("Executed reconciliation execution")
+                LOGGER.debug("Execution completed")
             else:
                 return LOGGER.error(f"Error during reconciliation: {execution.get_error()}")
         finally:
@@ -99,8 +109,7 @@ class ReconciliationLoop(Service):
     def stop(self) -> bool:
         self._stop_event.set()
 
-        timeout_seconds = STOP_TIMEOUT_MS / 1_000
-        self._service_thread.join(timeout=timeout_seconds)
+        self._service_thread.join(timeout=self.stop_timeout_sec)
 
         if self._service_thread.is_alive():
             LOGGER.error(f"The thread {RECONCILIATION_SERVICE_THREAD_NAME} did not stop in time")

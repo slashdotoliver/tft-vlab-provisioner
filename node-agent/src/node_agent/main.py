@@ -4,31 +4,41 @@ import sys
 from threading import Event
 from types import FrameType
 from typing import NoReturn
-from uuid import NIL
 
 import libvirt
 
+from node_agent.adapters.database.sqlalchemy_state_adapter import SqlAlchemyStateAdapter
 from node_agent.adapters.executors.libvirt_command_executor import LibvirtCommandExecutor
 from node_agent.adapters.system.libvirt_environment_adapter import LibvirtEnvironmentAdapter
+from node_agent.adapters.system.libvirt_network_adapter import LibvirtNetworkAdapter
+from node_agent.adapters.system.libvirt_pool_storage_adapter import LibvirtPoolStorageAdapter
 from node_agent.adapters.system.linux_environment_adapter import LinuxEnvironmentAdapter
 from node_agent.adapters.workers.libvirt_monitor_worker import LibvirtMonitorWorker
 from node_agent.adapters.workers.mock_lifecycle_event_handler import MockLifecycleEventHandler
 from node_agent.application.ports.desired_state_provider import DesiredStatePort
+from node_agent.application.ports.pool_storage_provider import PoolStorageProviderPort
+from node_agent.application.ports.virtual_network_provider import NetworkProviderPort
 from node_agent.application.ports.worker import Worker
 from node_agent.application.services.reconciliation_loop import ReconciliationLoop
 from node_agent.application.use_cases.environment_validator import EnvironmentValidator
 from node_agent.application.use_cases.reconcile_state import ReconcileStateUseCase
-from node_agent.config.logging_formatter import LoggingColoredFormatter, configure_logging
+from node_agent.config.config_sqlalchemy import DatabaseConfig, generate_local_session_factory
+from node_agent.config.logging_formatter import configure_logging
 from node_agent.domain.attempt import attempt
-from node_agent.domain.model.desired_state import DesiredVirtualMachine
-from node_agent.domain.model.entities import DomainUUID, LeaseID, NodeID
-from node_agent.domain.model.environment_models import EnvironmentCheckError, EnvironmentConfig, ValidationReport
+from node_agent.domain.model.entities import NodeID
+from node_agent.domain.model.environment_models import (
+    EnvironmentCheckError,
+    EnvironmentConfig,
+    NetFSPoolConfig,
+    NetworkConfig,
+    ValidationReport,
+)
 from node_agent.domain.model.result import Result
 from node_agent.domain.model.state_store import NodeStateStore
 
 shutdown_event: Event = Event()
 SERVICE_NAME = "node-agent"
-NODE_NAME = NodeID("node-01")
+NODE_NAME = NodeID("testnode-01")
 LOGGER = logging.getLogger(__name__)
 
 
@@ -44,10 +54,47 @@ def leave() -> NoReturn:
     sys.exit(0)
 
 
+def bootstrap_storage(
+    pool_storage_port: PoolStorageProviderPort, pools: tuple[NetFSPoolConfig, ...]
+) -> None | NoReturn:
+    for pool_cfg in pools:
+        res = pool_storage_port.initialize_pool(pool_cfg)
+        if res.is_failure():
+            LOGGER.critical(f"Error while initializing pool '{pool_cfg.name}': {res.get_error()}")
+            return leave()
+
+
+def bootstrap_networks(
+    virtual_network_port: NetworkProviderPort, networks: tuple[NetworkConfig, ...]
+) -> None | NoReturn:
+    for network_cfg in networks:
+        res = virtual_network_port.initialize_network(network_cfg)
+        if res.is_failure():
+            LOGGER.critical(f"Error while initializing network '{network_cfg.name}': {res.get_error()}")
+            return leave()
+
+
 def main():
+    # Parse config
     # TODO: parse config file
     configure_logging(logging.DEBUG)
     uri = "qemu:///system"
+    lab_network = NetworkConfig(name="lab_network", mode="bridge", bridge_name="br0")
+    bases_pool = NetFSPoolConfig(
+        name="bases",
+        source_host="localhost",
+        source_dir="/export/bases",
+        target_path="/var/lib/libvirt/images/bases",
+        is_readonly=True,
+    )
+    vms_pool = NetFSPoolConfig(
+        name="vms",
+        source_host="localhost",
+        source_dir="/export/vms",
+        target_path="/run/media/oliver/D03/ISOS/vms/tfglabpool",
+        is_readonly=False,
+    )
+    database_url = "postgresql+psycopg://manager_db_user:PASSWD@localhost:5432/lab_db"
 
     LOGGER.info(f"Starting {SERVICE_NAME} service...")
 
@@ -58,7 +105,7 @@ def main():
     # Validate environment
     validate_environment(EnvironmentConfig(), uri)
 
-    # Start workers
+    # Start connection
     libvirt.virEventRegisterDefaultImpl()
     connection: libvirt.virConnect | None = attempt(
         lambda: libvirt.open(uri), exceptions=(libvirt.libvirtError,)
@@ -67,28 +114,29 @@ def main():
         LOGGER.critical(f"Failed to open connection to libvirt with URI: {uri}")
         leave()
 
-    class MockDB(DesiredStatePort):
-        def get_desired_vms_for_node(self, n) -> list[DesiredVirtualMachine]:
-            test_vm = DesiredVirtualMachine(
-                lease_id=LeaseID(NIL),
-                domain_uuid=DomainUUID(NIL),
-                vcpus=4,
-                ram_mb=512,
-                should_be_defined=False,
-                should_be_running=True,
-                networks=tuple(),
-                disks=tuple(),
-            )
+    # Initialize networks
+    bootstrap_networks(LibvirtNetworkAdapter(connection), (lab_network,))
 
-            return [test_vm]
+    # Initialize pools
+    bootstrap_storage(
+        LibvirtPoolStorageAdapter(connection),
+        (
+            bases_pool,
+            vms_pool,
+        ),
+    )
+
+    # Start workers/services
+    db_config: DatabaseConfig = DatabaseConfig(database_url=database_url)
+    db_adapter: DesiredStatePort = SqlAlchemyStateAdapter(generate_local_session_factory(db_config, False))
 
     node_store = NodeStateStore()
-    reconcile_state_evaluator = ReconcileStateUseCase(db_port=(MockDB()), state_store=node_store, node_id=NODE_NAME)
+    reconcile_state_evaluator = ReconcileStateUseCase(db_port=db_adapter, state_store=node_store, node_id=NODE_NAME)
     reconciliation_loop = ReconciliationLoop(
         reconcile_state_evaluator=reconcile_state_evaluator,
-        executor=LibvirtCommandExecutor(connection),
-        min_interval_sec=1.0,
-        max_interval_sec=5.0,
+        executor=LibvirtCommandExecutor(connection, bases_pool, vms_pool),
+        min_interval_sec=5.0,
+        nominal_interval_sec=120.0,
     )
 
     # =============

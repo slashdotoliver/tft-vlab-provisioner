@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from node_agent.domain.model.desired_state import DesiredVirtualMachine
+from node_agent.domain.model.desired_state_entities import DesiredVirtualMachine
 from node_agent.domain.model.entities import LeaseID, NodeID
 
 
