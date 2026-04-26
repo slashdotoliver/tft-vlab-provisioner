@@ -1,7 +1,9 @@
 import logging
+from datetime import timedelta
 from typing import Sequence
+from uuid import UUID
 
-from sqlalchemy import Row, func, select
+from sqlalchemy import Executable, Row, func, select
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from node_agent.adapters.database.sqlalchemy_models import (
@@ -27,9 +29,7 @@ class SqlAlchemyStateAdapter(DesiredStatePort):
 
     def get_desired_vms_for_node(self, node_id: NodeID) -> list[DesiredVirtualMachine]:
         with self.session_factory() as session:
-            # TODO: cerrar el rango, ahora mismo obtiene todos los alquileres del nodo y se anota en el bool si se debe
-            #  ejecutar ahora
-            results = self._leases_for_node(node_id, session)
+            results = self._leases_for_node(node_id, session, timedelta(days=1), timedelta(hours=8))
 
             desired_vms = []
             for lease, is_active_time in results:
@@ -42,17 +42,23 @@ class SqlAlchemyStateAdapter(DesiredStatePort):
                     self._get_lease_disks(lease),
                     self._get_lease_networks(lease),
                     self._get_desired_vm_state(is_valid_and_active, lease),
-                    lease, )
-                desired_vms.append(
-                    desired_vm
+                    lease,
                 )
-                print(f"Desired VM: {desired_vm}")
+                desired_vms.append(desired_vm)
+                LOGGER.warning(f"Desired VM: {desired_vm}")
             return desired_vms
 
-    def _leases_for_node(self, node_id: NodeID, session: Session) -> Sequence[Row[tuple[LeaseModel, bool]]]:
+    def _leases_for_node(
+        self, node_id: NodeID, session: Session, before_search_window: timedelta, after_search_window: timedelta
+    ) -> Sequence[Row[tuple[LeaseModel, bool]]]:
         is_in_time_range = (func.now().op("<@")(LeaseModel.time_range)).label("is_active_time")
+        search_window = func.tstzrange(
+            func.now() - before_search_window,
+            func.now() + after_search_window,
+            "[]",
+        )
 
-        stmt = (
+        stmt: Executable = (
             select(LeaseModel, is_in_time_range)
             .options(
                 joinedload(LeaseModel.template).joinedload(TemplateModel.network_interfaces),
@@ -60,6 +66,7 @@ class SqlAlchemyStateAdapter(DesiredStatePort):
                 joinedload(LeaseModel.disks).joinedload(LeaseDiskModel.template_disk),
             )
             .where(LeaseModel.node_id == str(node_id))
+            .where(LeaseModel.time_range.op("&&")(search_window))
         )
         return session.execute(stmt).unique().all()
 

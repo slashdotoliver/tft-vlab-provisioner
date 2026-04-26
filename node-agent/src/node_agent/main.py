@@ -12,6 +12,7 @@ from node_agent.adapters.executors.libvirt_command_executor import LibvirtComman
 from node_agent.adapters.system.libvirt_environment_adapter import LibvirtEnvironmentAdapter
 from node_agent.adapters.system.libvirt_network_adapter import LibvirtNetworkAdapter
 from node_agent.adapters.system.libvirt_pool_storage_adapter import LibvirtPoolStorageAdapter
+from node_agent.adapters.system.libvirt_state_adapter import LibvirtStateAdapter
 from node_agent.adapters.system.linux_environment_adapter import LinuxEnvironmentAdapter
 from node_agent.adapters.workers.libvirt_monitor_worker import LibvirtMonitorWorker
 from node_agent.adapters.workers.mock_lifecycle_event_handler import MockLifecycleEventHandler
@@ -34,7 +35,6 @@ from node_agent.domain.model.environment_models import (
     ValidationReport,
 )
 from node_agent.domain.model.result import Result
-from node_agent.domain.model.state_store import NodeStateStore
 
 shutdown_event: Event = Event()
 SERVICE_NAME = "node-agent"
@@ -130,8 +130,9 @@ def main():
     db_config: DatabaseConfig = DatabaseConfig(database_url=database_url)
     db_adapter: DesiredStatePort = SqlAlchemyStateAdapter(generate_local_session_factory(db_config, False))
 
-    node_store = NodeStateStore()
-    reconcile_state_evaluator = ReconcileStateUseCase(db_port=db_adapter, state_store=node_store, node_id=NODE_NAME)
+    reconcile_state_evaluator = ReconcileStateUseCase(
+        db_port=db_adapter, state_port=LibvirtStateAdapter(connection), node_id=NODE_NAME
+    )
     reconciliation_loop = ReconciliationLoop(
         reconcile_state_evaluator=reconcile_state_evaluator,
         executor=LibvirtCommandExecutor(connection, bases_pool, vms_pool),

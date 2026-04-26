@@ -45,9 +45,17 @@ class Result[T, E]:
         return Result(self._inner.map(func))
 
     def flat_map[U](self, func: Callable[[T], Result[U, E]]) -> Result[U, E]:
+        """Applies a function to the encapsulated value if the result is a Success,
+        where the function itself returns a new Result.
+        Args:
+            func: A callable that takes the current value type (T) and returns
+                  a new Result[U, E].
+        Returns:
+            A new Result object representing the chained operation's outcome.
+        """
         return Result(self._inner.bind(lambda value: func(value)._inner))
 
-    def map_error[X](self, func: Callable[[E], Result[T, X]]) -> Result[T, X]:
+    def flat_map_error[X](self, func: Callable[[E], Result[T, X]]) -> Result[T, X]:
         """Applies a function to the encapsulated error if the result is a Failure.
         If the result is a Success, the value is passed through unchanged.
         Args:

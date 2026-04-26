@@ -28,7 +28,7 @@ class LibvirtPoolStorageAdapter(PoolStorageProviderPort):
 
         return (
             self._get_pool(config)
-            .map_error(lambda error: self._create_if_missing(config, error))
+            .flat_map_error(lambda error: self._create_if_missing(config, error))
             .flat_map(_ensure_running)
         )
 

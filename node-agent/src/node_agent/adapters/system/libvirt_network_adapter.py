@@ -28,7 +28,7 @@ class LibvirtNetworkAdapter(NetworkProviderPort):
 
         return (
             self._get_network(config)
-            .map_error(lambda error: self._create_if_missing(config, error))
+            .flat_map_error(lambda error: self._create_if_missing(config, error))
             .flat_map(_ensure_running)
         )
 

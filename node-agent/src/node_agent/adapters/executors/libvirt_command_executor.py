@@ -121,7 +121,7 @@ class LibvirtCommandExecutor(VirtualizationCommandExecutor):
             LOGGER.debug(f"Creating COW disk {disk.volume_path} backed by {disk.base_volume_path}")
             res: Result[None, Exception] = attempt(_run_qemu_img, exceptions=(subprocess.CalledProcessError, Exception))
             if res.is_failure():
-                return res.map_error(
+                return res.flat_map_error(
                     lambda e: Result.failure(
                         Exception(
                             f"Failed to create disk {disk.volume_path}: {e}"
