@@ -15,7 +15,7 @@ from node_agent.adapters.system.libvirt_pool_storage_adapter import LibvirtPoolS
 from node_agent.adapters.system.libvirt_state_adapter import LibvirtStateAdapter
 from node_agent.adapters.system.linux_environment_adapter import LinuxEnvironmentAdapter
 from node_agent.adapters.workers.libvirt_monitor_worker import LibvirtMonitorWorker
-from node_agent.adapters.workers.mock_lifecycle_event_handler import MockLifecycleEventHandler
+from node_agent.application.handlers.reconciliation_lifecycle_event_handler import ReconciliationTrigger
 from node_agent.application.ports.desired_state_provider import DesiredStatePort
 from node_agent.application.ports.pool_storage_provider import PoolStorageProviderPort
 from node_agent.application.ports.virtual_network_provider import NetworkProviderPort
@@ -142,7 +142,7 @@ def main():
 
     # =============
 
-    monitor_worker: Worker = LibvirtMonitorWorker(connection, MockLifecycleEventHandler(reconciliation_loop))
+    monitor_worker: Worker = LibvirtMonitorWorker(connection, ReconciliationTrigger(reconciliation_loop))
     monitor_worker.run()
     reconciliation_loop.start()
 
