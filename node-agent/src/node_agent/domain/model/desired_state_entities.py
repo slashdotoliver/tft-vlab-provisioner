@@ -4,6 +4,13 @@ from enum import StrEnum, auto
 from node_agent.domain.model.entities import DomainUUID, LeaseID
 
 
+@dataclass(frozen=True)
+class LeaseStateUpdate:
+    lease_id: LeaseID
+    actual_state: str
+    mac_to_ip_map: dict[str, str | None]
+
+
 class DesiredVmState(StrEnum):
     RUNNING = auto()
     SHUTOFF = auto()

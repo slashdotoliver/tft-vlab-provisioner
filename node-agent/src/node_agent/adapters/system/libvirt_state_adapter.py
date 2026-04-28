@@ -1,11 +1,13 @@
 import logging
-from typing import Literal
+from dataclasses import replace
+from typing import Literal, TypedDict
 from uuid import UUID
 from xml.etree import ElementTree
 from xml.etree.ElementTree import Element
 
 from libvirt import (
     VIR_DOMAIN_CRASHED,
+    VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT,
     VIR_DOMAIN_PAUSED,
     VIR_DOMAIN_RUNNING,
     VIR_DOMAIN_SHUTDOWN,
@@ -54,10 +56,9 @@ class LibvirtStateAdapter(VirtualizationStatePort):
                 state_info: list[int] = domain.state()
                 actual_state = self._map_libvirt_state(state_info[0])
 
-                root = ElementTree.fromstring(domain.XMLDesc(0))
                 # TODO: make ParseError raise explicit
-                parse_result = _parse_xml(root)
-                vcpus, memory_kb, interfaces, disks = parse_result
+                vcpus, memory_kb, interfaces, disks = _parse_xml(ElementTree.fromstring(domain.XMLDesc(0)))
+                interfaces = self._interfaces_with_ip_addresses(interfaces, domain, actual_state)
 
                 actual_vms.append(
                     VirtualMachine(
@@ -142,3 +143,46 @@ class LibvirtStateAdapter(VirtualizationStatePort):
                 )
 
         return tuple(disks)
+
+    def _interfaces_with_ip_addresses(
+        self,
+        interfaces: tuple[NetworkInterface, ...],
+        domain: virDomain,
+        actual_state: Literal["running", "paused", "shutoff", "crashed", "unknown"],
+    ) -> tuple[NetworkInterface, ...]:
+        class InterfaceAddress(TypedDict):
+            addr: str
+            prefix: int
+            type: int
+
+        class InterfaceData(TypedDict):
+            hwaddr: str
+            addrs: list[InterfaceAddress]
+
+        if actual_state != "running":
+            return interfaces
+
+        ip_types = {
+            0,  # IPv4
+            # 1  # IPv6
+        }
+
+        # noinspection PyTypeChecker
+        guest_interfaces: dict[str, InterfaceData] = attempt(
+            lambda: domain.interfaceAddresses(VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT, 0),
+            exceptions=(libvirtError,),
+        ).value_or(dict())
+        mac_to_ip_map: dict[str, str | None] = {}
+        for iface_name, iface_data in guest_interfaces.items():
+            mac: str | None = iface_data.get("hwaddr")
+            addrs: list[InterfaceAddress] | None = iface_data.get("addrs")
+            if not mac or not addrs:
+                continue
+            mac_to_ip_map[mac.lower()] = next((addr["addr"] for addr in addrs if addr.get("type") in ip_types), None)
+
+        return tuple(
+            (
+                replace(interface, ip_address=mac_to_ip_map.get(interface.mac_address.lower()))
+                for interface in interfaces
+            )
+        )

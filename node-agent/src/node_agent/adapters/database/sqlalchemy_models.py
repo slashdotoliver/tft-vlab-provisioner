@@ -1,11 +1,45 @@
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import TSTZRANGE, Range
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import ENUM, TSTZRANGE, Range
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase): ...
+
+
+lease_state_enum: ENUM = ENUM(
+    "pending",
+    "starting",
+    "running",
+    "paused",
+    "terminating_by_user",
+    "terminating",
+    "terminated",
+    "terminated_by_user",
+    "error",
+    name="lease_actual_vm_state",
+    create_type=False,
+)
+
+
+class NodeModel(Base):
+    __tablename__ = "nodes"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    hostname: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    total_cpus: Mapped[int] = mapped_column(Integer, CheckConstraint("total_cpus > 0"), nullable=False)
+    total_ram_mb: Mapped[int] = mapped_column(Integer, CheckConstraint("total_ram_mb > 0"), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    last_heartbeat: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),  # , onupdate=func.now()
+    )
 
 
 class TemplateModel(Base):
@@ -55,7 +89,7 @@ class LeaseModel(Base):
     template_id: Mapped[UUID] = mapped_column(ForeignKey("templates.id"))
     time_range: Mapped[Range] = mapped_column(TSTZRANGE)
     lease_status: Mapped[str] = mapped_column(String)
-    actual_state: Mapped[str] = mapped_column(String)
+    actual_state: Mapped[str] = mapped_column(lease_state_enum)
     type: Mapped[str] = mapped_column(String)
     is_permanent: Mapped[bool] = mapped_column(Boolean, default=False)
     instructions: Mapped[str | None] = mapped_column(Text)

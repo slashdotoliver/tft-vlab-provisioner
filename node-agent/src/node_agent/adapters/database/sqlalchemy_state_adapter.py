@@ -1,24 +1,29 @@
 import logging
 from datetime import timedelta
 from typing import Sequence
-from uuid import UUID
 
-from sqlalchemy import Executable, Row, func, select
+from sqlalchemy import Executable, Row, func, select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from node_agent.adapters.database.sqlalchemy_models import (
     LeaseDiskModel,
     LeaseModel,
+    LeaseNetworkInterfaceModel,
+    NodeModel,
     TemplateModel,
 )
 from node_agent.application.ports.desired_state_provider import DesiredStatePort
+from node_agent.domain.attempt import attempt, raises
 from node_agent.domain.model.desired_state_entities import (
     DesiredDisk,
     DesiredNetworkInterface,
     DesiredVirtualMachine,
     DesiredVmState,
+    LeaseStateUpdate,
 )
 from node_agent.domain.model.entities import DomainUUID, LeaseID, NodeID
+from node_agent.domain.model.result import Result
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,25 +33,33 @@ class SqlAlchemyStateAdapter(DesiredStatePort):
         self.session_factory = session_factory
 
     def get_desired_vms_for_node(self, node_id: NodeID) -> list[DesiredVirtualMachine]:
-        with self.session_factory() as session:
-            results = self._leases_for_node(node_id, session, timedelta(days=1), timedelta(hours=8))
+        @raises(OperationalError)
+        def get_vms_for_node() -> list[DesiredVirtualMachine]:
+            with self.session_factory() as session:
+                results = self._leases_for_node(node_id, session, timedelta(days=1), timedelta(hours=8))
 
-            desired_vms = []
-            for lease, is_active_time in results:
-                lease: LeaseModel
-                is_active_time: bool
+                desired_vms = []
+                for lease, is_active_time in results:
+                    lease: LeaseModel
+                    is_active_time: bool
 
-                is_valid_and_active = (lease.lease_status == "active") and is_active_time
+                    is_valid_and_active = (lease.lease_status == "active") and is_active_time
 
-                desired_vm = self._get_lease_vm(
-                    self._get_lease_disks(lease),
-                    self._get_lease_networks(lease),
-                    self._get_desired_vm_state(is_valid_and_active, lease),
-                    lease,
-                )
-                desired_vms.append(desired_vm)
-                LOGGER.warning(f"Desired VM: {desired_vm}")
-            return desired_vms
+                    desired_vms.append(
+                        self._get_lease_vm(
+                            self._get_lease_disks(lease),
+                            self._get_lease_networks(lease),
+                            self._get_desired_vm_state(is_valid_and_active, lease),
+                            lease,
+                        )
+                    )
+                LOGGER.info(f"Desired VMs: {desired_vms}")
+                return desired_vms
+
+        result = attempt(get_vms_for_node)
+        if result.is_failure():
+            LOGGER.error(f"Error getting VMs: {result.get_error()}")
+        return result.value_or([])
 
     def _leases_for_node(
         self, node_id: NodeID, session: Session, before_search_window: timedelta, after_search_window: timedelta
@@ -126,15 +139,35 @@ class SqlAlchemyStateAdapter(DesiredStatePort):
             )
         return networks
 
-    def report_actual_state(self, lease_id: LeaseID, state: str) -> None:
-        with self.session_factory() as session:
-            lease: LeaseModel | None = session.get(LeaseModel, lease_id)
-            if not lease:
-                LOGGER.warning("Trying to report vm state for a lease not found in database")
-                return
+    def report_node_status(self, node_id: NodeID, updates: list[LeaseStateUpdate]) -> Result[None, Exception]:
+        @raises(Exception)
+        def _try_report_node_status() -> None:
+            # Update node
+            session.execute(update(NodeModel).where(NodeModel.id == str(node_id)).values(last_heartbeat=func.now()))
+            # TODO: only update if we know the previous leases are different from now (get it from evaluation)
+            if updates:
+                # Update lease actual state
+                lease_update_data = [
+                    {"id": update_dto.lease_id, "actual_state": update_dto.actual_state} for update_dto in updates
+                ]
+                session.execute(update(LeaseModel), lease_update_data)
 
-            if lease.actual_state == state:
-                return
+                # Update IPs in lease interfaces
+                for update_dto in updates:
+                    if not update_dto.mac_to_ip_map:
+                        continue
 
-            lease.actual_state = state
+                    for mac_address, ip_address in update_dto.mac_to_ip_map.items():
+                        if ip_address:
+                            session.execute(
+                                update(LeaseNetworkInterfaceModel)
+                                .where(
+                                    LeaseNetworkInterfaceModel.lease_id == update_dto.lease_id,
+                                    LeaseNetworkInterfaceModel.mac_address == mac_address,
+                                )
+                                .values(ip_address=ip_address)
+                            )
             session.commit()
+
+        with self.session_factory() as session:
+            return attempt(_try_report_node_status)

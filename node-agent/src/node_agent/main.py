@@ -15,6 +15,7 @@ from node_agent.adapters.system.libvirt_pool_storage_adapter import LibvirtPoolS
 from node_agent.adapters.system.libvirt_state_adapter import LibvirtStateAdapter
 from node_agent.adapters.system.linux_environment_adapter import LinuxEnvironmentAdapter
 from node_agent.adapters.workers.libvirt_monitor_worker import LibvirtMonitorWorker
+from node_agent.adapters.workers.postgres_event_listener import PostgresEventMonitorWorker
 from node_agent.application.handlers.reconciliation_lifecycle_event_handler import ReconciliationTrigger
 from node_agent.application.ports.desired_state_provider import DesiredStatePort
 from node_agent.application.ports.pool_storage_provider import PoolStorageProviderPort
@@ -22,7 +23,8 @@ from node_agent.application.ports.virtual_network_provider import NetworkProvide
 from node_agent.application.ports.worker import Worker
 from node_agent.application.services.reconciliation_loop import ReconciliationLoop
 from node_agent.application.use_cases.environment_validator import EnvironmentValidator
-from node_agent.application.use_cases.reconcile_state import ReconcileStateUseCase
+from node_agent.application.use_cases.reconcile_state_evaluator import ReconcileStateEvaluatorUseCase
+from node_agent.application.use_cases.report_node_status import ReportNodeStatusUseCase
 from node_agent.config.config_sqlalchemy import DatabaseConfig, generate_local_session_factory
 from node_agent.config.logging_formatter import configure_logging
 from node_agent.domain.attempt import attempt
@@ -38,7 +40,7 @@ from node_agent.domain.model.result import Result
 
 shutdown_event: Event = Event()
 SERVICE_NAME = "node-agent"
-NODE_NAME = NodeID("testnode-01")
+NODE_NAME = NodeID("testnode_01")
 LOGGER = logging.getLogger(__name__)
 
 
@@ -96,7 +98,7 @@ def main():
     )
     database_url = "postgresql+psycopg://manager_db_user:PASSWD@localhost:5432/lab_db"
 
-    LOGGER.info(f"Starting {SERVICE_NAME} service...")
+    LOGGER.info(f"[{NODE_NAME}] Starting {SERVICE_NAME} service...")
 
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
@@ -130,11 +132,13 @@ def main():
     db_config: DatabaseConfig = DatabaseConfig(database_url=database_url)
     db_adapter: DesiredStatePort = SqlAlchemyStateAdapter(generate_local_session_factory(db_config, False))
 
-    reconcile_state_evaluator = ReconcileStateUseCase(
-        db_port=db_adapter, state_port=LibvirtStateAdapter(connection), node_id=NODE_NAME
+    state_adapter = LibvirtStateAdapter(connection)
+    reconcile_state_evaluator = ReconcileStateEvaluatorUseCase(
+        db_port=db_adapter, state_port=state_adapter, node_id=NODE_NAME
     )
     reconciliation_loop = ReconciliationLoop(
         reconcile_state_evaluator=reconcile_state_evaluator,
+        node_status_reporter=ReportNodeStatusUseCase(db_port=db_adapter, state_port=state_adapter, node_id=NODE_NAME),
         executor=LibvirtCommandExecutor(connection, bases_pool, vms_pool),
         min_interval_sec=5.0,
         nominal_interval_sec=120.0,
@@ -142,14 +146,19 @@ def main():
 
     # =============
 
-    monitor_worker: Worker = LibvirtMonitorWorker(connection, ReconciliationTrigger(reconciliation_loop))
-    monitor_worker.run()
+    libvirt_monitor: Worker = LibvirtMonitorWorker(connection, ReconciliationTrigger(reconciliation_loop))
+    libvirt_monitor.start()
+
+    postgres_monitor: Worker = PostgresEventMonitorWorker(database_url2, NODE_NAME, reconciliation_loop)
+    postgres_monitor.start()
+
     reconciliation_loop.start()
 
     LOGGER.debug("Waiting for shutdown event...")
     shutdown_event.wait()
 
-    monitor_worker.stop()
+    postgres_monitor.stop()
+    libvirt_monitor.stop()
     reconciliation_loop.stop()
 
 

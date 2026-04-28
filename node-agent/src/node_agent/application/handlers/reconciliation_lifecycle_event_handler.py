@@ -12,5 +12,5 @@ class ReconciliationTrigger(DomainLifecycleEventHandler):
         self.reconciliation_loop = reconciliation_loop
 
     def handle_lifecycle_event(self, name: str, event: DomainEventType, detail) -> None:
-        LOGGER.info(f"Domain lifecycle event triggered. name: {name} event: {event.name} detail: {detail}")
+        LOGGER.debug(f"Domain lifecycle event triggered. name: {name} event: {event.name} detail: {detail}")
         self.reconciliation_loop.trigger()
