@@ -3,7 +3,8 @@ from datetime import timedelta
 from typing import Sequence
 
 from sqlalchemy import Executable, Row, func, select, update
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, joinedload, sessionmaker
 
 from node_agent.adapters.database.sqlalchemy_models import (
@@ -22,7 +23,7 @@ from node_agent.domain.model.desired_state_entities import (
     DesiredVmState,
     LeaseStateUpdate,
 )
-from node_agent.domain.model.entities import DomainUUID, LeaseID, NodeID
+from node_agent.domain.model.entities import DomainUUID, LeaseID, Node, NodeID
 from node_agent.domain.model.result import Result
 
 LOGGER = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ class SqlAlchemyStateAdapter(DesiredStatePort):
     def __init__(self, session_factory: sessionmaker):
         self.session_factory = session_factory
 
-    def get_desired_vms_for_node(self, node_id: NodeID) -> list[DesiredVirtualMachine]:
+    def get_desired_vms_for_node(self, node_id: NodeID) -> Result[list[DesiredVirtualMachine], Exception]:
         @raises(OperationalError)
         def get_vms_for_node() -> list[DesiredVirtualMachine]:
             with self.session_factory() as session:
@@ -53,13 +54,10 @@ class SqlAlchemyStateAdapter(DesiredStatePort):
                             lease,
                         )
                     )
-                LOGGER.info(f"Desired VMs: {desired_vms}")
+                LOGGER.debug(f"Desired VMs: {desired_vms}")
                 return desired_vms
 
-        result = attempt(get_vms_for_node)
-        if result.is_failure():
-            LOGGER.error(f"Error getting VMs: {result.get_error()}")
-        return result.value_or([])
+        return attempt(get_vms_for_node).map_error(lambda error: Exception(f"Error getting VMs from db: {error}"))
 
     def _leases_for_node(
         self, node_id: NodeID, session: Session, before_search_window: timedelta, after_search_window: timedelta
@@ -140,7 +138,7 @@ class SqlAlchemyStateAdapter(DesiredStatePort):
         return networks
 
     def report_node_status(self, node_id: NodeID, updates: list[LeaseStateUpdate]) -> Result[None, Exception]:
-        @raises(Exception)
+        @raises(OperationalError)
         def _try_report_node_status() -> None:
             # Update node
             session.execute(update(NodeModel).where(NodeModel.id == str(node_id)).values(last_heartbeat=func.now()))

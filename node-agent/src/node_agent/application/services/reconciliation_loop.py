@@ -73,21 +73,25 @@ class ReconciliationLoop(Service):
 
     def execute(self) -> None:
         try:
-            evaluation_result = self.reconcile_state_evaluator.evaluate()
-            if evaluation_result.is_failure():
-                return LOGGER.error(f"Error during evaluation: {evaluation_result.get_error()}")
-            plan = evaluation_result.value_or(EvaluationPlan(desired_vms=[], commands=[]))
-            LOGGER.debug(f"Evaluation completed. Commands to execute: {plan.commands}")
-
-            execution_result = self.executor.execute_all(commands=plan.commands)
-            if execution_result.is_failure():
-                LOGGER.error(f"Error during execution: {execution_result.get_error()}")
-
-            report_result = self.node_status_reporter.report(desired_vms=plan.desired_vms)
-            if report_result.is_failure():
-                LOGGER.error("Failed to report node status to the database.")
-            else:
-                LOGGER.debug("Node status and heartbeat successfully reported.")
+            (
+                self.reconcile_state_evaluator.evaluate()
+                .on_failure(lambda error: LOGGER.error(f"Skipping execution. Error during evaluation: {error}"))
+                .on_success(lambda plan: LOGGER.info(f"Evaluation completed. Commands to execute: {plan.commands}"))
+                .flat_tap(
+                    lambda plan: (
+                        self.executor.execute_all(commands=plan.commands)
+                        .on_failure(lambda error: LOGGER.error(f"Error during execution: {error}"))
+                        .on_success(lambda _: LOGGER.debug("Execution completed"))
+                    )
+                )
+                .flat_map(
+                    lambda plan: (
+                        self.node_status_reporter.report(desired_vms=plan.desired_vms)
+                        .on_failure(lambda error: LOGGER.error("Failed to report node status to the database"))
+                        .on_success(lambda _: LOGGER.debug("Node status and heartbeat successfully reported"))
+                    )
+                )
+            )
         finally:
             self._last_run_time = time.time()
 

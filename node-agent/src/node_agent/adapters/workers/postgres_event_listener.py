@@ -10,7 +10,6 @@ from node_agent.application.ports.worker import Worker
 from node_agent.application.services.reconciliation_loop import ReconciliationLoop
 from node_agent.domain.attempt import attempt, raises
 from node_agent.domain.model.entities import NodeID
-from node_agent.domain.model.result import Result
 
 LOGGER = logging.getLogger(__name__)
 MONITOR_WORKER_THREAD_NAME: str = "PostgresEventMonitorWorker-Thread-0"
@@ -47,8 +46,8 @@ class PostgresEventMonitorWorker(Worker):
 
                     if not ready:
                         if keepalive_counter % KEEPALIVE_CYCLE_PERIOD == 0:
-                            attempt(lambda: connection.execute("SELECT 1"), exceptions=(Exception,)).flat_map_error(
-                                lambda e: Result.failure(LOGGER.error(f"Error sending keepalive ping: {e}"))
+                            attempt(lambda: connection.execute("SELECT 1"), exceptions=(Exception,)).on_failure(
+                                lambda e: LOGGER.error(f"Error sending keepalive ping: {e}")
                             )
                         keepalive_counter = (keepalive_counter + 1) % KEEPALIVE_CYCLE_PERIOD
                         continue
@@ -60,13 +59,11 @@ class PostgresEventMonitorWorker(Worker):
                         self._handle_payload(payload_str)
 
         LOGGER.debug(f"Thread {MONITOR_WORKER_THREAD_NAME} started")
-        run_loop_result = attempt(loop)
-        if run_loop_result.is_failure():
-            LOGGER.error(
-                f"Error while running {MONITOR_WORKER_THREAD_NAME}: "
-                f"Closing thread with error: {run_loop_result.get_error()} "
-                f"{type(run_loop_result.get_error())}"
+        attempt(loop).on_failure(
+            lambda error: LOGGER.error(
+                f"Error while running {MONITOR_WORKER_THREAD_NAME}: Closing thread with error: {error} {type(error)}"
             )
+        )
         return
 
     def _handle_payload(self, payload: str) -> None:

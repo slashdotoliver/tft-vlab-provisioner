@@ -8,11 +8,21 @@ NodeID = NewType("NodeID", str)
 
 
 @dataclass(frozen=True)
+class Node:
+    node_id: str
+    hostname: str
+    total_cpus: int
+    total_ram_mb: int
+    is_active: bool = field(default=True)
+
+
+@dataclass(frozen=True)
 class Volume:
     name: str
-    pool_name: str # TODO: replace for path?
+    pool_name: str  # TODO: replace for path?
     capacity_bytes: int
     path: str
+
 
 @dataclass(frozen=True)
 class Disk:

@@ -168,10 +168,18 @@ class LibvirtStateAdapter(VirtualizationStatePort):
         }
 
         # noinspection PyTypeChecker
-        guest_interfaces: dict[str, InterfaceData] = attempt(
-            lambda: domain.interfaceAddresses(VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT, 0),
-            exceptions=(libvirtError,),
-        ).value_or(dict())
+        guest_interfaces: dict[str, InterfaceData] = (
+            attempt(
+                lambda: domain.interfaceAddresses(VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT, 0),
+                exceptions=(libvirtError,),
+            )
+            .on_failure(
+                lambda error: LOGGER.debug(
+                    f"Could not get ip addresses in domain UUID('{domain.UUIDString()}'): {error}"
+                )
+            )
+            .value_or(dict())
+        )
         mac_to_ip_map: dict[str, str | None] = {}
         for iface_name, iface_data in guest_interfaces.items():
             mac: str | None = iface_data.get("hwaddr")

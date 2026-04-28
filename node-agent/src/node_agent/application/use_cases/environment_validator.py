@@ -52,113 +52,116 @@ class EnvironmentValidator:
         return Result.success(report)
 
     def _check_architecture(self, required: str) -> ValidationStepResult:
-        check_result = self.sys_port.get_architecture()
-        if check_result.is_failure():
-            return Result.failure(EnvironmentCheckError(f"System error reading arch: {check_result.get_error()}"))
-
-        found_arch = check_result.value_or("")
-        if found_arch != required:
-            return Result.success(f"Architecture mismatch: required '{required}', found '{found_arch}'.")
-        return Result.success(None)
+        return (
+            self.sys_port.get_architecture()
+            .map_error(lambda error: EnvironmentCheckError(f"System error reading arch: {error}"))
+            .map(
+                lambda arch: (
+                    None if arch == required else f"Architecture mismatch: required '{required}', found '{arch}'."
+                )
+            )
+        )
 
     def _check_hw_virt(self) -> ValidationStepResult:
-        check_result = self.sys_port.check_hw_virtualization()
-        if check_result.is_failure():
-            return Result.failure(
-                EnvironmentCheckError(
-                    f"System error checking hardware virtualization support: {check_result.get_error()}"
+        return (
+            self.sys_port.check_hw_virtualization()
+            .map_error(
+                lambda error: EnvironmentCheckError(f"System error checking hardware virtualization support: {error}")
+            )
+            .map(
+                lambda is_supported: (
+                    None if is_supported else "Hardware virtualization is not supported or disabled in BIOS."
                 )
             )
-
-        if not check_result.value_or(False):
-            return Result.success("Hardware virtualization is not supported or disabled in BIOS.")
-        return Result.success(None)
+        )
 
     def _check_nested_virt(self) -> ValidationStepResult:
-        check_result = self.sys_port.check_nested_virtualization()
-        if check_result.is_failure():
-            return Result.failure(
-                EnvironmentCheckError(f"System error checking nested virt: {check_result.get_error()}")
+        return (
+            self.sys_port.check_nested_virtualization()
+            .map_error(lambda error: EnvironmentCheckError(f"System error checking nested virt: {error}"))
+            .map(
+                lambda is_enabled: (
+                    None if is_enabled else "Nested virtualization is required but disabled in kernel modules."
+                )
             )
-
-        if not check_result.value_or(False):
-            return Result.success("Nested virtualization is required but disabled in kernel modules.")
-        return Result.success(None)
+        )
 
     def _check_selinux_nfs(self) -> ValidationStepResult:
-        check_active_result = self.sys_port.check_selinux_active()
-        if check_active_result.is_failure():
-            return Result.failure(
-                EnvironmentCheckError(f"System error checking SELinux state: {check_active_result.get_error()}")
-            )
-
-        if check_active_result.value_or(False):
-            nfs_res = self.sys_port.check_selinux_nfs()
-            if nfs_res.is_failure():
-                return Result.failure(
-                    EnvironmentCheckError(f"System error reading virt_use_nfs boolean: {nfs_res.get_error()}")
+        return (
+            self.sys_port.check_selinux_active()
+            .map_error(lambda e: EnvironmentCheckError(f"System error checking SELinux state: {e}"))
+            .flat_map(
+                lambda is_active: (
+                    (
+                        self.sys_port.check_selinux_nfs()
+                        .map_error(
+                            lambda error: EnvironmentCheckError(f"System error reading virt_use_nfs boolean: {error}")
+                        )
+                        .map(
+                            lambda nfs_enabled: (
+                                None
+                                if nfs_enabled
+                                else "SELinux is enforcing but 'virt_use_nfs' is set to off. Cannot mount NFS."
+                            )
+                        )
+                    )
+                    if is_active
+                    else Result.success(None)
                 )
-
-            if not nfs_res.value_or(False):
-                return Result.success("SELinux is enforcing but 'virt_use_nfs' is set to off. Cannot mount NFS.")
-        return Result.success(None)
+            )
+        )
 
     def _check_libvirt_presence(self) -> ValidationStepResult:
-        check_result = self.libvirt_port.check_presence()
-        if check_result.is_failure():
-            return Result.failure(EnvironmentCheckError(f"Libvirt connection error: {check_result.get_error()}"))
-
-        if not check_result.value_or(False):
-            return Result.success("Libvirt daemon is not responding or not installed.")
-        return Result.success(None)
+        return (
+            self.libvirt_port.check_presence()
+            .map_error(lambda error: EnvironmentCheckError(f"Libvirt connection error: {error}"))
+            .map(lambda is_present: None if is_present else "Libvirt daemon is not responding or not installed.")
+        )
 
     def _check_libvirt_guest_capabilities(self, required_guest_support: list[GuestSupport]) -> ValidationStepResult:
-        capabilities_result = self.libvirt_port.get_guest_capabilities()
-        if capabilities_result.is_failure():
-            return Result.failure(
-                EnvironmentCheckError(f"Failed to fetch libvirt guest capabilities: {capabilities_result.get_error()}")
+        def _find_missing(supported: list[GuestSupport]) -> str | None:
+            missing = [guest for guest in required_guest_support if guest not in supported]
+            if not missing:
+                return None
+            return (
+                f"Missing required guest support: {', '.join(map(str, missing))}. "
+                f"Available: {', '.join(map(str, supported))}"
             )
 
-        supported = capabilities_result.value_or([])
-        missing = [supported_guest for supported_guest in required_guest_support if supported_guest not in supported]
-        if missing:
-            return Result.success(
-                f"Missing required guest support: {', '.join(map(lambda m: str(m), missing))}. Available: {
-                    ', '.join(map(lambda s: str(s), supported))
-                }"
-            )
-        return Result.success(None)
+        return (
+            self.libvirt_port.get_guest_capabilities()
+            .map_error(lambda error: EnvironmentCheckError(f"Failed to fetch libvirt guest capabilities: {error}"))
+            .map(_find_missing)
+        )
 
     def _check_libvirt_pool_capabilities(self, required_pool_support: list[PoolSupport]) -> ValidationStepResult:
-        def _get_missing_details(required: PoolSupport) -> str | None:
-            supported_pool_cap: PoolCapability | None = supported_map.get(required.pool_type)
-            if not supported_pool_cap:
-                return f"'{required.pool_type}' (missing pool type)"
-            supported_pool: PoolSupport = PoolSupport(
-                supported_pool_cap.pool_type, supported_pool_cap.source_formats, supported_pool_cap.target_formats
-            )
-            missing_sources = set(required.source_formats) - set(supported_pool.source_formats)
-            missing_targets = set(required.target_formats) - set(supported_pool.target_formats)
-
-            if not missing_sources and not missing_targets:
-                return None
-            errs = [
-                f"{k}: {', '.join(v)}" for k, v in [("sources", missing_sources), ("targets", missing_targets)] if v
+        def _find_missing(capabilities: list[PoolCapability]) -> str | None:
+            supported_map = {cap.pool_type: cap for cap in capabilities if cap.supported is True}
+            missing = [
+                detail for req in required_pool_support if (detail := self._get_missing_details(req, supported_map))
             ]
-            return f"'{required.pool_type}' missing {', and '.join(errs)}"
+            return f"Missing required pool support: {'; '.join(missing)}" if missing else None
 
-        capabilities_result = self.libvirt_port.get_pool_capabilities()
-        if capabilities_result.is_failure():
-            return Result.failure(
-                EnvironmentCheckError(f"Failed to fetch storage pool capabilities: {capabilities_result.get_error()}")
-            )
+        return (
+            self.libvirt_port.get_pool_capabilities()
+            .map_error(lambda error: EnvironmentCheckError(f"Failed to fetch storage pool capabilities: {error}"))
+            .map(_find_missing)
+        )
 
-        supported_map: dict[str, PoolCapability] = {
-            capability.pool_type: capability
-            for capability in capabilities_result.value_or([])
-            if capability.supported is True
-        }
-        missing = [detail for req in required_pool_support if (detail := _get_missing_details(req))]
-        if missing:
-            return Result.success(f"Missing required pool support: {'; '.join(missing)}")
-        return Result.success(None)
+    @staticmethod
+    def _get_missing_details(required: PoolSupport, supported_map: dict[str, PoolCapability]) -> str | None:
+        supported_pool_cap: PoolCapability | None = supported_map.get(required.pool_type)
+        if not supported_pool_cap:
+            return f"'{required.pool_type}' (missing pool type)"
+
+        supported_pool = PoolSupport(
+            supported_pool_cap.pool_type, supported_pool_cap.source_formats, supported_pool_cap.target_formats
+        )
+        missing_sources = set(required.source_formats) - set(supported_pool.source_formats)
+        missing_targets = set(required.target_formats) - set(supported_pool.target_formats)
+
+        if not missing_sources and not missing_targets:
+            return None
+
+        errs = [f"{k}: {', '.join(v)}" for k, v in [("sources", missing_sources), ("targets", missing_targets)] if v]
+        return f"'{required.pool_type}' missing {', and '.join(errs)}"

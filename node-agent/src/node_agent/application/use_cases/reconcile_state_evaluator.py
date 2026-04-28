@@ -32,19 +32,19 @@ class ReconcileStateEvaluatorUseCase:
     def evaluate(self) -> Result[EvaluationPlan, Exception]:
         """Compares desired state vs current state and decides what actions to take."""
 
-        def _report_error(error: Exception) -> Result[EvaluationPlan, Exception]:
-            LOGGER.error(f"Error while evaluating virtual machines: {error}")
-            return Result.failure(error)
-
-        desired_vms: list[DesiredVirtualMachine] = self.db_port.get_desired_vms_for_node(self.node_id)
         return (
-            self.state_port.get_actual_vms()
-            .map(
-                lambda actual_vms: EvaluationPlan(
-                    commands=self._evaluate(actual_vms, desired_vms), desired_vms=desired_vms
+            self.db_port.get_desired_vms_for_node(self.node_id)
+            .flat_map(
+                lambda desired_vms: (
+                    self.state_port.get_actual_vms()
+                    .on_failure(lambda error: LOGGER.error(f"Error while getting current virtual machines: {error}"))
+                    .map(
+                        lambda actual_vms: EvaluationPlan(
+                            commands=self._evaluate(actual_vms, desired_vms), desired_vms=desired_vms
+                        )
+                    )
                 )
             )
-            .flat_map_error(_report_error)
         )
 
     def _evaluate(self, actual_vms: list[VirtualMachine], desired_vms: list[DesiredVirtualMachine]) -> list[VMCommand]:

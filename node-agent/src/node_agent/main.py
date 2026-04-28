@@ -17,7 +17,6 @@ from node_agent.adapters.system.linux_environment_adapter import LinuxEnvironmen
 from node_agent.adapters.workers.libvirt_monitor_worker import LibvirtMonitorWorker
 from node_agent.adapters.workers.postgres_event_listener import PostgresEventMonitorWorker
 from node_agent.application.handlers.reconciliation_lifecycle_event_handler import ReconciliationTrigger
-from node_agent.application.ports.desired_state_provider import DesiredStatePort
 from node_agent.application.ports.pool_storage_provider import PoolStorageProviderPort
 from node_agent.application.ports.virtual_network_provider import NetworkProviderPort
 from node_agent.application.ports.worker import Worker
@@ -48,6 +47,10 @@ def shutdown_handler(signum: int, frame: FrameType | None) -> None:
     LOGGER.debug(f"Received signal: {signal.Signals(signum).name}")
     LOGGER.info(f"Stopping {SERVICE_NAME} service...")
     shutdown_event.set()
+
+
+def libvirt_quiet_error_handler(ctx, err):
+    pass
 
 
 def leave() -> NoReturn:
@@ -108,6 +111,7 @@ def main():
     validate_environment(EnvironmentConfig(), uri)
 
     # Start connection
+    libvirt.registerErrorHandler(libvirt_quiet_error_handler, None)
     libvirt.virEventRegisterDefaultImpl()
     connection: libvirt.virConnect | None = attempt(
         lambda: libvirt.open(uri), exceptions=(libvirt.libvirtError,)

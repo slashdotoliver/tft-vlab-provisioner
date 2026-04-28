@@ -14,7 +14,6 @@ from node_agent.application.controllers.thread_controller import ThreadControlle
 from node_agent.application.handlers.domain_lifecycle_event_handler import DomainLifecycleEventHandler
 from node_agent.application.ports.worker import Worker
 from node_agent.domain.attempt import attempt
-from node_agent.domain.model.result import Result
 from node_agent.domain.type_adapters.vir_domain_event_id import DomainEventType
 
 LOGGER = logging.getLogger(__name__)
@@ -41,12 +40,12 @@ class LibvirtMonitorWorker(Worker):
     def _on_lifecycle_event(self, conn: virConnect, dom: virDomain, event: int, detail: int, opaque: Any):
         (
             attempt(lambda: DomainEventType(event), exceptions=(ValueError,))
-            .map(
+            .on_success(
                 lambda event_type: self._lifecycle_event_handler.handle_lifecycle_event(dom.name(), event_type, detail)
             )
-            .flat_map_error(
-                lambda error: Result.failure(
-                    LOGGER.error(f"The lifecycle event was triggered with an unknown lifecycle event type: {error}")
+            .on_failure(
+                lambda error: LOGGER.error(
+                    f"The lifecycle event was triggered with an unknown lifecycle event type: {error}"
                 )
             )
         )

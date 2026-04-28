@@ -34,6 +34,30 @@ class Result[T, E]:
         """
         return Failure(error)
 
+    def on_success(self, func: Callable[[T], Any]) -> Result[T, E]:
+        """Executes a function if the result is a Success.
+        The value and internal state remain unchanged.
+        Args:
+            func: A callable that takes the current value. Its return value is ignored.
+        Returns:
+            The same original Result instance.
+        """
+        if self.is_success():
+            func(self._inner.unwrap())
+        return self
+
+    def on_failure(self, func: Callable[[E], Any]) -> Result[T, E]:
+        """Executes a function if the result is a Failure.
+        The error and internal state remain unchanged.
+        Args:
+            func: A callable that takes the current error. Its return value is ignored.
+        Returns:
+            The same original Result instance.
+        """
+        if self.is_failure():
+            func(self._inner.failure())
+        return self
+
     def map[U](self, func: Callable[[T], U]) -> Result[U, E]:
         """Applies a function to the encapsulated value if the result is a Success.
         If the result is a Failure, the error is passed through unchanged.
@@ -55,6 +79,16 @@ class Result[T, E]:
         """
         return Result(self._inner.bind(lambda value: func(value)._inner))
 
+    def map_error[X](self, func: Callable[[E], X]) -> Result[T, X]:
+        """Applies a function to the encapsulated error if the result is a Failure.
+        If the result is a Success, the value is passed through unchanged.
+        Args:
+            func: A callable that takes the current error type (E) and returns a new type (X).
+        Returns:
+            A new Result object containing either the mapped error or the original value.
+        """
+        return Result(self._inner.alt(func))
+
     def flat_map_error[X](self, func: Callable[[E], Result[T, X]]) -> Result[T, X]:
         """Applies a function to the encapsulated error if the result is a Failure.
         If the result is a Success, the value is passed through unchanged.
@@ -65,6 +99,18 @@ class Result[T, E]:
             A new Result object representing the outcome of the recovery attempt.
         """
         return Result(self._inner.lash(lambda error: func(error)._inner))
+
+    def flat_tap(self, func: Callable[[T], Result[Any, E]]) -> Result[T, E]:
+        """Executes a function returning a Result, ignoring its success value.
+        If the function returns a Success, the original Success value is preserved.
+        If it returns a Failure, the execution short-circuits and the error is returned.
+        Args:
+            func: A callable that takes the current value and returns a new Result.
+        Returns:
+            The original Result instance if the function succeeded, or a Failure
+            if the function failed.
+        """
+        return self.flat_map(lambda val: func(val).map(lambda _: val))
 
     def value_or(self, default_value: T) -> T:
         """Unwraps the encapsulated value if successful, or returns a fallback value.
