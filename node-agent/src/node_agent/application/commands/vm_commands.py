@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from node_agent.domain.model.desired_state_entities import DesiredVirtualMachine
+from node_agent.domain.model.desired_state_entities import DesiredDisk, DesiredVirtualMachine
 from node_agent.domain.model.entities import DomainUUID
 
 
@@ -26,3 +26,4 @@ class StopVMCommand(VMCommand):
 @dataclass(frozen=True)
 class DestroyVMCommand(VMCommand):
     domain_uuid: DomainUUID
+    disks_to_delete: tuple[DesiredDisk, ...]

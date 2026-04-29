@@ -32,16 +32,13 @@ class ReconcileStateEvaluatorUseCase:
     def evaluate(self) -> Result[EvaluationPlan, Exception]:
         """Compares desired state vs current state and decides what actions to take."""
 
-        return (
-            self.db_port.get_desired_vms_for_node(self.node_id)
-            .flat_map(
-                lambda desired_vms: (
-                    self.state_port.get_actual_vms()
-                    .on_failure(lambda error: LOGGER.error(f"Error while getting current virtual machines: {error}"))
-                    .map(
-                        lambda actual_vms: EvaluationPlan(
-                            commands=self._evaluate(actual_vms, desired_vms), desired_vms=desired_vms
-                        )
+        return self.db_port.get_desired_vms_for_node(self.node_id).flat_map(
+            lambda desired_vms: (
+                self.state_port.get_actual_vms()
+                .on_failure(lambda error: LOGGER.error(f"Error while getting current virtual machines: {error}"))
+                .map(
+                    lambda actual_vms: EvaluationPlan(
+                        commands=self._evaluate(actual_vms, desired_vms), desired_vms=desired_vms
                     )
                 )
             )
@@ -58,7 +55,7 @@ class ReconcileStateEvaluatorUseCase:
                 if actual:
                     if actual.state == "running":
                         commands.append(StopVMCommand(domain_uuid=desired.domain_uuid))
-                    commands.append(DestroyVMCommand(domain_uuid=desired.domain_uuid))
+                    commands.append(DestroyVMCommand(domain_uuid=desired.domain_uuid, disks_to_delete=desired.disks))
                 continue
 
             if desired.target_state == DesiredVmState.SHUTOFF:

@@ -31,8 +31,8 @@ class DesiredDisk:
     target_bus: str  # 'virtio'
     disk_driver: str  # 'qemu'
     disk_subdriver: str  # 'qcow2'
-    volume_path: str  # copy-on-write volume path
-    base_volume_path: str  # backing file volume path
+    volume_name: str  # copy-on-write volume path
+    base_volume_name: str  # backing file volume path
     disk_size_gb: int
 
 

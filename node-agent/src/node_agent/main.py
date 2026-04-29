@@ -27,7 +27,7 @@ from node_agent.application.use_cases.report_node_status import ReportNodeStatus
 from node_agent.config.config_sqlalchemy import DatabaseConfig, generate_local_session_factory
 from node_agent.config.logging_formatter import configure_logging
 from node_agent.domain.attempt import attempt
-from node_agent.domain.model.entities import NodeID
+from node_agent.domain.model.entities import Node, NodeID
 from node_agent.domain.model.environment_models import (
     EnvironmentCheckError,
     EnvironmentConfig,
@@ -133,8 +133,12 @@ def main():
     )
 
     # Start workers/services
-    db_config: DatabaseConfig = DatabaseConfig(database_url=database_url)
-    db_adapter: DesiredStatePort = SqlAlchemyStateAdapter(generate_local_session_factory(db_config, False))
+    db_config = DatabaseConfig(database_url=database_url)
+    db_adapter = SqlAlchemyStateAdapter(generate_local_session_factory(db_config, False))
+    # Register node
+    db_adapter.register_or_update_node(
+        Node(node_id=NODE_NAME, hostname="kraken", total_cpus=6, total_ram_mb=6_142)
+    ).on_failure(lambda error: LOGGER.critical(f"Could not register node '{NODE_NAME}': {error}"))
 
     state_adapter = LibvirtStateAdapter(connection)
     reconcile_state_evaluator = ReconcileStateEvaluatorUseCase(

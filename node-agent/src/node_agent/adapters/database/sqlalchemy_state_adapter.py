@@ -114,11 +114,11 @@ class SqlAlchemyStateAdapter(DesiredStatePort):
             disks.append(
                 DesiredDisk(
                     target_dev=disk.target_dev,
-                    volume_path=disk.volume_path,
+                    volume_name=disk.volume_path,
                     disk_driver=td.disk_driver if td else "",
                     disk_subdriver=td.disk_subdriver if td else "",
                     target_bus=td.target_bus if td else "",
-                    base_volume_path=td.base_volume_path if td else "",
+                    base_volume_name=td.base_volume_path if td else "",
                     disk_size_gb=td.disk_size_gb if td else 0,
                 )
             )
@@ -169,3 +169,26 @@ class SqlAlchemyStateAdapter(DesiredStatePort):
 
         with self.session_factory() as session:
             return attempt(_try_report_node_status)
+
+    def register_or_update_node(self, node: Node) -> Result[None, Exception]:
+        @raises(OperationalError, IntegrityError)
+        def _try_upsert_node() -> None:
+            stmt = insert(NodeModel).values(
+                id=node.node_id, hostname=node.hostname, total_cpus=node.total_cpus, total_ram_mb=node.total_ram_mb
+            )
+
+            upsert_stmt = stmt.on_conflict_do_update(
+                index_elements=["id"],
+                set_={
+                    "hostname": stmt.excluded.hostname,
+                    "total_cpus": stmt.excluded.total_cpus,
+                    "total_ram_mb": stmt.excluded.total_ram_mb,
+                    "last_heartbeat": func.now(),
+                },
+            )
+
+            session.execute(upsert_stmt)
+            session.commit()
+
+        with self.session_factory() as session:
+            return attempt(_try_upsert_node)

@@ -1,9 +1,8 @@
 import logging
-import subprocess
 from functools import singledispatchmethod
 from pathlib import Path
 
-from libvirt import libvirtError, virConnect
+from libvirt import libvirtError, virConnect, virStorageVol
 
 from node_agent.application.commands.vm_commands import (
     CreateVMCommand,
@@ -13,11 +12,12 @@ from node_agent.application.commands.vm_commands import (
     VMCommand,
 )
 from node_agent.application.ports.virtualization_command_executor import VirtualizationCommandExecutor
-from node_agent.domain.attempt import attempt
+from node_agent.domain.attempt import attempt, raises
 from node_agent.domain.model.desired_state_entities import DesiredDisk, DesiredVirtualMachine
 from node_agent.domain.model.environment_models import NetFSPoolConfig
 from node_agent.domain.model.result import Result
 from node_agent.templates.domain_xml import render_domain_xml
+from node_agent.templates.volume_xml import render_volume_xml
 
 LOGGER = logging.getLogger(__name__)
 
@@ -53,87 +53,96 @@ class LibvirtCommandExecutor(VirtualizationCommandExecutor):
 
     @_execute_single.register
     def _(self, command: StartVMCommand) -> Result[None, Exception]:
+        @raises(libvirtError)
         def _start() -> None:
             dom = self._connection.lookupByUUIDString(str(command.domain_uuid))
             if not dom.isActive():
                 dom.create()
 
         LOGGER.info(f"Starting VM {command.domain_uuid}...")
-        return attempt(_start, exceptions=(libvirtError,))
+        return attempt(_start)
 
     @_execute_single.register
     def _(self, command: StopVMCommand) -> Result[None, Exception]:
+        @raises(libvirtError)
         def _stop() -> None:
             dom = self._connection.lookupByUUIDString(str(command.domain_uuid))
             if dom.isActive():
                 dom.destroy()  # TODO: Use dom.shutdown() for graceful ACPI shutdown.
 
         LOGGER.info(f"Stopping VM {command.domain_uuid}...")
-        return attempt(_stop, exceptions=(libvirtError,))
+        return attempt(_stop)
 
     @_execute_single.register
     def _(self, command: DestroyVMCommand) -> Result[None, Exception]:
+        @raises(libvirtError)
         def _undefine() -> None:
             dom = self._connection.lookupByUUIDString(str(command.domain_uuid))
             dom.undefine()
-            # FIXME: We should probably also delete the copy-on-write disks from the filesystem
-            #  here using os.remove() or another subprocess call.
+
+        @raises(libvirtError)
+        def _try_delete_volume(disk: DesiredDisk) -> None:
+            volume_file_path: Path = self._vms_path / disk.volume_name
+
+            if not volume_file_path.exists():
+                LOGGER.warning(f"Volume {volume_file_path} does not exist. Skipping deletion of volume")
+                return
+
+            vol: virStorageVol = self._connection.storageVolLookupByPath(str(volume_file_path))
+            vol.delete()
 
         LOGGER.info(f"Destroying VM (undefine) {command.domain_uuid}...")
-        return attempt(_undefine, exceptions=(libvirtError,))
+        return (
+            attempt(_undefine)
+            .flat_map(
+                lambda _: attempt(lambda: [_try_delete_volume(disk) for disk in command.disks_to_delete]).on_failure(
+                    lambda error: LOGGER.warning(f"Failed to delete volume: {error}")
+                )
+            )
+            .map(lambda _: None)
+        )
 
     def _create_disks(self, disks: tuple[DesiredDisk, ...]) -> Result[None, Exception]:
         """Creates the copy-on-write (COW) disks using qemu-img."""
         for disk in disks:
-            if not disk.base_volume_path:
+            if not disk.base_volume_name:
                 return Result.failure(
                     Exception("Error while creating volumes: Found a disk definition without base volume path")
                 )
 
+            @raises(libvirtError)
             def _run_qemu_img() -> None:
-                volume_file_path: Path = self._vms_path / disk.volume_path
-                backing_vol_file: str = str(self._bases_path / disk.base_volume_path)
-                volume_file: str = str(volume_file_path)
+                volume_file_path: Path = self._vms_path / disk.volume_name
+                backing_vol_path: Path = self._bases_path / disk.base_volume_name
 
                 if volume_file_path.exists():
-                    LOGGER.debug(f"Volume {volume_file} already exists. Skipping creating volume")
+                    LOGGER.debug(f"Volume {volume_file_path} already exists. Skipping creating volume")
                     return
 
-                # TODO: intentarlo con virsh vol-create-as
-                # qemu-img create -f qcow2 -F qcow2 -b <backing_file> <target_file>
-                subprocess.run(
-                    [
-                        "qemu-img",
-                        "create",
-                        "-f",
-                        disk.disk_subdriver,
-                        "-F",
-                        disk.disk_subdriver,
-                        "-b",
-                        backing_vol_file,
-                        volume_file,
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
+                pool = self._connection.storagePoolLookupByTargetPath(str(self._vms_path))
+                backing_vol: virStorageVol = self._connection.storageVolLookupByPath(str(backing_vol_path))
+
+                # noinspection PyTypeChecker
+                capacity_bytes: int = backing_vol.info()[1]
+                assert capacity_bytes == disk.disk_size_gb * 2**30
+
+                _: virStorageVol = pool.createXML(
+                    render_volume_xml(config=disk, vms_pool_path=self._vms_path, bases_pool_path=self._bases_path),
                 )
 
-            LOGGER.debug(f"Creating COW disk {disk.volume_path} backed by {disk.base_volume_path}")
-            res: Result[None, Exception] = attempt(_run_qemu_img, exceptions=(subprocess.CalledProcessError, Exception))
+            LOGGER.debug(f"Creating COW disk {disk.volume_name} backed by {disk.base_volume_name}")
+            res: Result[None, Exception] = attempt(_run_qemu_img)
+
             if res.is_failure():
                 return res.flat_map_error(
-                    lambda e: Result.failure(
-                        Exception(
-                            f"Failed to create disk {disk.volume_path}: {e}"
-                            f"{e.stderr.strip() if isinstance(e, subprocess.CalledProcessError) else str(e)}"
-                        )
-                    )
+                    lambda e: Result.failure(Exception(f"Failed creating volume {disk.volume_name}: {e}"))
                 )
         return Result.success(None)
 
     def _define_domain(self, vm_spec: DesiredVirtualMachine) -> Result[None, Exception]:
         """Defines the domain in libvirt."""
 
+        @raises(libvirtError, Exception)
         def _do_define() -> None:
             # TODO: add more emulators
             dom = self._connection.defineXML(
@@ -143,4 +152,4 @@ class LibvirtCommandExecutor(VirtualizationCommandExecutor):
                 raise libvirtError(f"Libvirt returned None defining {vm_spec.domain_uuid}")
 
         LOGGER.debug(f"Defining XML for VM {vm_spec.domain_uuid}...")
-        return attempt(_do_define, exceptions=(libvirtError, Exception))
+        return attempt(_do_define)
