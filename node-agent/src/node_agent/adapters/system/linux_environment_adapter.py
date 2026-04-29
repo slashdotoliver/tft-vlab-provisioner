@@ -1,10 +1,23 @@
 import os
 import platform
+import socket
 
 from returns.result import Result
 
 from node_agent.application.ports.enviroment_provider import SystemEnvironmentPort
 from node_agent.domain.attempt import attempt
+from node_agent.domain.model.entities import Node, NodeID
+
+
+def get_linux_hardware_node(node_id: str) -> Node:
+    hostname = socket.gethostname()
+    cpus = os.cpu_count() or 1
+
+    page_size = os.sysconf("SC_PAGE_SIZE")
+    phys_pages = os.sysconf("SC_PHYS_PAGES")
+    ram_mb = (page_size * phys_pages) // (1024 * 1024)
+
+    return Node(node_id=NodeID(node_id), hostname=hostname, total_cpus=cpus, total_ram_mb=ram_mb)
 
 
 class LinuxEnvironmentAdapter(SystemEnvironmentPort):

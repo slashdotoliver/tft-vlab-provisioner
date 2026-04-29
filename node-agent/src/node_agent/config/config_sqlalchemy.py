@@ -13,7 +13,7 @@ class DatabaseConfig:
     pool_recycle_seconds: int = 3600
 
 
-def generate_local_session_factory(database_config: DatabaseConfig, debug: bool = False) -> sessionmaker:
+def generate_session_factory(database_config: DatabaseConfig, debug: bool = False) -> sessionmaker:
     return sessionmaker(
         bind=(
             create_engine(

@@ -65,6 +65,6 @@ class ThreadController:
             LOGGER.error(f"Error: The thread {self._name} did not stop within {self._stop_timeout_sec} seconds")
             return False
 
-        LOGGER.debug(f"Thread {self._name} stopped cleanly")
+        LOGGER.debug(f"Thread {self._name} stopped")
         self._thread = None
         return True

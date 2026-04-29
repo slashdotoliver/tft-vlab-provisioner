@@ -9,7 +9,7 @@ NodeID = NewType("NodeID", str)
 
 @dataclass(frozen=True)
 class Node:
-    node_id: str
+    node_id: NodeID
     hostname: str
     total_cpus: int
     total_ram_mb: int

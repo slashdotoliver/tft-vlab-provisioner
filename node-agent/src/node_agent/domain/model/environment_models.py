@@ -78,7 +78,7 @@ class NetworkConfig:
     mode: Literal["nat", "bridge"]
     bridge_name: str
 
-    # 'nat' mode
+    # only in 'nat' mode
     ip_address: str | None = None
     netmask: str | None = None
     dhcp_start: str | None = None
